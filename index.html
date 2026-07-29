@@ -1,5 +1,4 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cornelius Jiu Jitsu Academy — Redesign Preview</title></head><body>
-<style>
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cornelius Jiu Jitsu Academy — Redesign Preview</title></head><body><style>
 img:is([sizes="auto" i], [sizes^="auto," i]) { contain-intrinsic-size: 3000px 1500px }
 
 .wp-block-site-logo{box-sizing:border-box;line-height:0}.wp-block-site-logo a{display:inline-block;line-height:0}.wp-block-site-logo.is-default-size img{height:auto;width:120px}.wp-block-site-logo img{height:auto;max-width:100%}.wp-block-site-logo a,.wp-block-site-logo img{border-radius:inherit}.wp-block-site-logo.aligncenter{margin-left:auto;margin-right:auto;text-align:center}:root :where(.wp-block-site-logo.is-style-rounded){border-radius:9999px}
@@ -263,6 +262,782 @@ form.submitting .wpcf7-spinner {
 
 .wpcf7-reflection > output[hidden] {
 	display: none;
+}
+
+/* WP WDFY – Weekly Calendar */
+
+/* ── Design tokens ───────────────────────────────────────────────────────────
+ * All colours derive from these custom properties.
+ * Override them in your theme stylesheet to adapt the calendar:
+ *   .wdfy-week-calendar { --wdfy-accent: #c0392b; }
+ * ─────────────────────────────────────────────────────────────────────────── */
+.wdfy-week-calendar {
+	/* Accent – tries WP block theme → common theme vars → safe fallback */
+	--wdfy-accent:
+		var(--wp--preset--color--primary,
+		var(--color-primary,
+		var(--accent-color,
+		#0073aa)));
+
+	/* Surfaces – inherit from WP/theme variables where available */
+	--wdfy-bg:     var(--wp--preset--color--base,     var(--color-background, #ffffff));
+	--wdfy-bg-alt: var(--wp--preset--color--base-2,   var(--color-surface,    #f8f9fa));
+
+	/* Borders: currentColor-based so it adapts to light & dark themes       */
+	--wdfy-border: rgba(0,0,0,.1);                                   /* fallback */
+	--wdfy-border: color-mix(in srgb, currentColor 12%, transparent);/* modern   */
+
+	/* Today highlight – tinted from accent, fallback for older browsers      */
+	--wdfy-today-bg:   #eff6ff;
+	--wdfy-today-bg:   color-mix(in srgb, var(--wdfy-accent)  8%, var(--wdfy-bg));
+	--wdfy-today-head: #dbeafe;
+	--wdfy-today-head: color-mix(in srgb, var(--wdfy-accent) 20%, var(--wdfy-bg));
+
+	/* Reservation bar colours */
+	--wdfy-res-green:  #22c55e;
+	--wdfy-res-yellow: #f59e0b;
+	--wdfy-res-red:    #ef4444;
+
+	width: 100%;
+	font-family: inherit;
+	font-size: inherit;
+	line-height: inherit;
+	color: inherit;
+}
+
+
+/* ── Navigation ─────────────────────────────────────────────────────────────*/
+.wdfy-cal-nav {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: .75rem;
+	margin-bottom: 1rem;
+	flex-wrap: wrap;
+}
+
+.wdfy-cal-label {
+	flex: 1;
+	text-align: center;
+	font-weight: 600;
+}
+
+.wdfy-cal-btn {
+	background: var(--wdfy-accent);
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	padding: .35rem .9rem;
+	font-size: 1.4em;
+	line-height: 1;
+	cursor: pointer;
+	transition: opacity .15s;
+	flex-shrink: 0;
+}
+.wdfy-cal-btn:hover  { opacity: .8; }
+.wdfy-cal-btn:active { opacity: .6; }
+
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────────*/
+.wdfy-cal-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: .35rem;
+	margin-bottom: 1rem;
+}
+
+.wdfy-cal-tab {
+	background: transparent;
+	color: inherit;
+	border: 1px solid var(--wdfy-border);
+	border-radius: 4px;
+	padding: .3rem .8rem;
+	font-size: 1em;
+	font-family: inherit;
+	cursor: pointer;
+	transition: background-color .15s, color .15s, border-color .15s;
+}
+.wdfy-cal-tab:hover {
+	background: var(--wdfy-bg-alt);
+	border-color: color-mix(in srgb, currentColor 30%, transparent);
+}
+.wdfy-cal-tab.is-active {
+	background: var(--wdfy-accent);
+	color: #fff;
+	border-color: transparent;
+}
+
+/* Tab filter – class-based to avoid `:visible` ancestor dependency */
+.wdfy-hidden { display: none !important; }
+
+
+/* ── Loading state ───────────────────────────────────────────────────────────*/
+.wdfy-cal-body.is-loading {
+	opacity: .45;
+	pointer-events: none;
+	transition: opacity .2s;
+}
+
+
+/* ── Desktop table ───────────────────────────────────────────────────────────*/
+.wdfy-cal-mobile  { display: none; }
+.wdfy-cal-desktop { display: block; }
+
+.wdfy-cal-scroll {
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+}
+
+.wdfy-cal-table {
+	width: 100%;
+	border-collapse: collapse;
+	min-width: 520px;
+	font-size: 1em;
+	table-layout: fixed;
+}
+
+.wdfy-cal-table th,
+.wdfy-cal-table td {
+	border: 1px solid var(--wdfy-border);
+	padding: 4px;
+	vertical-align: top;
+}
+
+/* Time column */
+.wdfy-cal-th-time,
+.wdfy-cal-td-time {
+	width: 3.8rem;
+	text-align: right;
+	font-size: .8em;
+	opacity: .6;
+	white-space: nowrap;
+	vertical-align: middle;
+	padding: 4px 6px;
+}
+
+/* Day header */
+.wdfy-cal-th-day {
+	text-align: center;
+	font-size: 1em;
+	background: var(--wdfy-accent);
+	color: #fff;
+	padding: 8px 6px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	font-weight: 700;
+}
+
+/* Today highlight */
+.wdfy-cal-th-day.wdfy-today  { background: var(--wdfy-today-head); color: var(--wdfy-accent); }
+.wdfy-cal-td-cell.wdfy-today { background: var(--wdfy-today-bg); }
+
+
+/* ── Class card ──────────────────────────────────────────────────────────────*/
+.wdfy-class-card {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	background: var(--wdfy-bg);
+	border: 1px solid var(--wdfy-border);
+	border-left: 3px solid var(--wdfy-border); /* overridden inline per program */
+	border-radius: 4px;
+	padding: 5px 7px;
+	margin-bottom: 3px;
+	font-size: .9em;
+	line-height: 1.35;
+	word-break: break-word;
+	transition: background-color .18s, color .18s, box-shadow .18s;
+}
+.wdfy-class-card:last-child { margin-bottom: 0; }
+
+/* Hover – neutral (no program colour) */
+.wdfy-class-card:hover {
+	background: var(--wdfy-today-bg);
+	box-shadow: 0 1px 4px rgba(0,0,0,.08);
+	cursor: pointer;
+}
+/* Cards with a program colour – left border as colour indicator only */
+/* (border-left-color is overridden via inline style per card)         */
+
+/* Hover – fill with program colour, contrast text colour auto-set via --wdfy-text-color */
+.wdfy-class-card.wdfy-has-color:hover {
+	background: var(--wdfy-prog-color);
+	color: var(--wdfy-text-color, #fff);
+	border-left-color: transparent;
+	border-color: transparent;
+	box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.wdfy-class-card.wdfy-has-color:hover .wdfy-class-time { color: var(--wdfy-text-color, #fff); }
+.wdfy-class-card.wdfy-has-color:hover a               { color: var(--wdfy-text-color, #fff); }
+
+/* Card content */
+.wdfy-class-time {
+	font-size: .875em;
+	font-weight: 600;
+	color: var(--wdfy-accent);
+}
+.wdfy-class-name {
+	font-weight: 600;
+}
+.wdfy-class-name a { color: inherit; text-decoration: none; }
+.wdfy-class-name a:hover { text-decoration: underline; }
+
+/* Second line: specific class name – normal weight */
+.wdfy-class-classname {
+	font-weight: 400;
+	font-size: .9em;
+	opacity: .8;
+}
+
+.wdfy-class-coach {
+	font-size: .875em;
+	opacity: .65;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.wdfy-class-coach a { color: inherit; }
+
+
+/* ── Cancelled ───────────────────────────────────────────────────────────────*/
+.wdfy-class-card.wdfy-cancelled {
+	opacity: .6;
+	background: var(--wdfy-bg-alt);
+}
+.wdfy-class-card.wdfy-cancelled .wdfy-class-name { text-decoration: line-through; }
+
+.wdfy-class-cancelled-badge {
+	display: inline-block;
+	font-size: .75em;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: .03em;
+	background: #fca5a5;
+	color: #7f1d1d;
+	border-radius: 3px;
+	padding: 1px 4px;
+	margin-right: 3px;
+	vertical-align: middle;
+	text-decoration: none;
+}
+
+
+/* ── Reservation bar ─────────────────────────────────────────────────────────*/
+.wdfy-class-res {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-top: 2px;
+}
+.wdfy-res-bar {
+	flex: 1;
+	height: 4px;
+	background: var(--wdfy-border);
+	border-radius: 2px;
+	overflow: hidden;
+}
+.wdfy-res-fill      { height: 100%; border-radius: 2px; transition: width .3s; }
+.wdfy-bar-green     { background: var(--wdfy-res-green); }
+.wdfy-bar-yellow    { background: var(--wdfy-res-yellow); }
+.wdfy-bar-red       { background: var(--wdfy-res-red); }
+.wdfy-res-label     { font-size: .8em; opacity: .6; white-space: nowrap; }
+
+
+/* ── Empty / Error ───────────────────────────────────────────────────────────*/
+.wdfy-cal-empty,
+.wdfy-cal-error { text-align: center; padding: 1.5rem; opacity: .6; }
+
+
+/* ── WOD trigger button ──────────────────────────────────────────────────────
+ * Small round icon button shown at the bottom of a class card when a WOD is
+ * available. The emoji content (🏋️) is set in PHP; CSS just shapes the button.
+ * Note: wod-popup.js also injects equivalent CSS inline to guarantee the
+ * styles apply even when calendar.css is not enqueued (widget-only pages).
+ * ─────────────────────────────────────────────────────────────────────────── */
+.wdfy-wod-trigger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	margin-top: 3px;
+	background: transparent;
+	border: none;
+	border-radius: 50%;
+	font-size: 13px;
+	line-height: 1;
+	cursor: pointer;
+	opacity: .6;
+	transition: opacity .15s, background-color .15s;
+	font-family: inherit;
+	vertical-align: middle;
+	flex-shrink: 0;
+}
+.wdfy-wod-trigger:hover,
+.wdfy-wod-trigger:focus-visible {
+	opacity: 1;
+	background: rgba(0, 0, 0, .1);
+	outline: none;
+}
+
+/* Hidden WOD snippet – never rendered inline; content read by JS into modal */
+.wdfy-wod-popup-content { display: none !important; }
+
+
+/* ── WOD Modal ───────────────────────────────────────────────────────────────
+ * Shared modal used by both the weekly calendar and the upcoming-classes
+ * widget / block. The modal container is injected once into <body> via
+ * wpwdfy_inject_wod_modal() in shortcodes-calendar.php.
+ * ─────────────────────────────────────────────────────────────────────────── */
+.wdfy-modal {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 999990;
+	align-items: center;
+	justify-content: center;
+}
+.wdfy-modal.is-open { display: flex; }
+
+/* Semi-transparent backdrop */
+.wdfy-modal-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, .55);
+}
+
+/* Centered dialog */
+.wdfy-modal-dialog {
+	position: relative;
+	background: var(--wdfy-bg, #fff);
+	color: inherit;
+	border-radius: 8px;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, .28);
+	width: calc(100% - 2rem);
+	max-width: 680px;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+/* Header row: title + close button */
+.wdfy-modal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: .85rem 1.25rem;
+	border-bottom: 1px solid var(--wdfy-border, rgba(0,0,0,.1));
+	flex-shrink: 0;
+}
+
+.wdfy-modal-title {
+	font-weight: 700;
+	font-size: 1.05em;
+	line-height: 1.3;
+}
+
+.wdfy-modal-close {
+	flex-shrink: 0;
+	background: none;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	font-size: 1em;
+	cursor: pointer;
+	padding: .3rem .55rem;
+	color: inherit;
+	opacity: .55;
+	line-height: 1;
+	font-family: inherit;
+	transition: opacity .15s, background-color .15s, border-color .15s;
+}
+.wdfy-modal-close:hover,
+.wdfy-modal-close:focus-visible {
+	opacity: 1;
+	background: var(--wdfy-bg-alt, #f8f9fa);
+	border-color: var(--wdfy-border, rgba(0,0,0,.1));
+	outline: none;
+}
+
+/* Scrollable body */
+.wdfy-modal-body {
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+	padding: 1.25rem;
+	flex: 1;
+}
+
+/* Lock body scroll while modal is open */
+body.wdfy-modal-open { overflow: hidden; }
+
+
+/* ── Mobile stacked view (≤ 680 px) ─────────────────────────────────────────*/
+@media (max-width: 680px) {
+	.wdfy-cal-desktop { display: none; }
+	.wdfy-cal-mobile  { display: block; }
+
+	.wdfy-cal-day {
+		border: 1px solid var(--wdfy-border);
+		border-radius: 6px;
+		margin-bottom: .75rem;
+		overflow: hidden;
+	}
+	.wdfy-cal-day.wdfy-today { border-color: var(--wdfy-accent); }
+
+	.wdfy-cal-day-header {
+		background: var(--wdfy-accent);
+		color: #fff;
+		padding: 8px 12px;
+		font-weight: 700;
+		font-size: 1em;
+		border-bottom: 1px solid var(--wdfy-border);
+	}
+	.wdfy-cal-day.wdfy-today .wdfy-cal-day-header { background: var(--wdfy-today-head); color: var(--wdfy-accent); }
+
+	.wdfy-cal-mobile .wdfy-class-card { margin: 6px 10px; }
+
+	.wdfy-cal-no-classes {
+		margin: 0;
+		padding: 6px 12px;
+		opacity: .5;
+		font-size: .85em;
+	}
+
+	/* Modal: slide up from bottom on small screens */
+	.wdfy-modal {
+		align-items: flex-end;
+	}
+	.wdfy-modal-dialog {
+		width: 100%;
+		max-height: 88vh;
+		border-bottom-left-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+}
+
+/* V1.7 */
+.soswodify_wod_header
+{
+	font-weight: bold;
+	font-size: 1.5rem;
+}
+.soswodify_section_title
+{
+	font-weight: bold;
+	color: red;
+}
+.soswodify_component_name
+{
+	font-weight: bold;
+
+}
+.soswodify_component_comment
+{
+	font-style: italic;
+}
+.soswodify_announcements
+{
+	padding-top: 5px;
+	padding-bottom: 5px;
+	font-style: italic;
+}
+
+@media ( max-width: 1000px )
+{
+	span.soswodify_desktop
+	{
+		visibility: hidden;
+		position: absolute;
+		top: -9999px;
+		right: -9999px;
+		font-size: 0;
+		width: 0 !important;
+		height: 0 !important;
+	}
+	span.soswodify_mobile img.wdfylogo_small
+	{
+		width: 148px;
+		padding: 5px 10px 5px 10px !important;
+	}
+	span.soswodify_mobile img.wdfylogo
+	{
+		width: 276px;
+		padding: 5px 10px 5px 10px !important;
+	}
+	
+}
+
+@media ( min-width: 1001px )
+{
+	span.soswodify_mobile
+	{
+		visibility: hidden;
+		font-size: 0;
+		position: absolute;
+		top: -9999px;
+		right: -9999px;
+		width: 0 !important;
+		height: 0 !important;	
+		
+	}
+	span.soswodify_desktop img.wdfylogo_small
+	{
+		width: 148px;
+		padding: 5px 10px 5px 10px !important;
+	}
+	span.soswodify_desktop img.wdfylogo
+	{
+		width: 276px;
+		padding: 5px 10px 5px 10px !important;
+	}
+}
+
+.wdfy_calendar_icon
+{
+	display: block;
+	float: left;
+	width: 16px;
+	height: 16px;
+	
+	background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTMyIDc5LjE1OTI4NCwgMjAxNi8wNC8xOS0xMzoxMzo0MCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTUuNSAoV2luZG93cykiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6REMxQkE2OUY5REU5MTFFNkJFMkFCQTVFODQ2M0YwOEUiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6REMxQkE2QTA5REU5MTFFNkJFMkFCQTVFODQ2M0YwOEUiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDpEQzFCQTY5RDlERTkxMUU2QkUyQUJBNUU4NDYzRjA4RSIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDpEQzFCQTY5RTlERTkxMUU2QkUyQUJBNUU4NDYzRjA4RSIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/Pu2x+yMAAABiSURBVHjaYjQxMTnJwMBgBsSMQPyfAQKQ2QxYxGDsk0xQzeQCcxYstuADGPLIBvwnoBmrPBMDhYCFBOdjdRHFLmDCYfJ/AmzahAG2sGAkFEbD1Atku+A/uengJAUOOAYQYADlGhiFTid1YQAAAABJRU5ErkJggg==') no-repeat;
+	margin-right: 8px;
+	margin-top: 2px;
+}
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container:hover .wdfy_calendar_icon
+{
+	
+	background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTMyIDc5LjE1OTI4NCwgMjAxNi8wNC8xOS0xMzoxMzo0MCAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bWxuczp4bXBNTT0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL21tLyIgeG1sbnM6c3RSZWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZVJlZiMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTUuNSAoV2luZG93cykiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6MjdCQzkyQzE5REU5MTFFNkEzRTU4NDE2MjMyMUQwN0MiIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6MjdCQzkyQzI5REU5MTFFNkEzRTU4NDE2MjMyMUQwN0MiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDoyN0JDOTJCRjlERTkxMUU2QTNFNTg0MTYyMzIxRDA3QyIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDoyN0JDOTJDMDlERTkxMUU2QTNFNTg0MTYyMzIxRDA3QyIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/Pp9fRxMAAABiSURBVHjaYvj////J/xDA8B8BkNn/8cifYATzIIARiLGxGfDJs2BRhA9gyCMb8J+AZqzyTAwUAhYSnI/VRRS7gAmHyf8JsGkTBtjCgpFQGA1TL5Dtgv/kpoOTFDjgGECAAQCLDVUFN6htcwAAAABJRU5ErkJggg==') no-repeat;
+}
+
+
+.wdfy_upcoming_classes_wrapper
+{
+	clear: both;
+	float: left;
+	width: 100%;
+	overflow: hidden;
+}
+
+.wdfy_upcoming_classes_wrapper .caroufredsel_wrapper
+{
+    margin: 0 !important;
+    overflow: hidden;
+    width: 100% !important;
+}
+
+.wdfy_upcoming_classes_wrapper *
+{
+	box-sizing: content-box;
+	-moz-box-sizing: content-box;
+	-webkit-box-sizing: content-box;
+}
+.wdfy_upcoming_classes_wrapper p.message
+{
+	padding: 0;
+}
+.wdfy_upcoming_classes
+{
+	padding: 0 !important;
+	margin: 0 !important;
+	list-style: none !important;
+	border-radius: 0 !important;
+	box-shadow: none !important;
+	border: none !important;
+}
+.wdfy_upcoming_classes li
+{
+	width: 270px;
+	padding: 0 0 10px !important;
+	margin: 0 !important;
+	border: none !important;
+	list-style: none !important;
+	background: none !important;
+}
+.wdfy_upcoming_classes li:before,
+.wdfy_upcoming_classes li:after
+{
+	content: none !important;
+	background: none !important;
+	border: none !important;
+}
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container
+{
+	display: block !important;
+	border: 1px solid #EFEFEF;
+	border-left: 3px solid #666666;
+	background-color: #FFF;
+	padding: 10px 20px;
+	text-decoration: none;
+	color: #34495E;
+	font-size: 14px;
+	font-weight: 400;
+	line-height: 140%;
+	height: 40px;
+	overflow: hidden;
+	outline: none;
+	transition: none !important;
+	box-sizing: content-box;
+	-moz-box-sizing: content-box;
+	-webkit-box-sizing: content-box;
+}
+
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container:hover
+{
+	background: #666666;
+	color: #FFF;
+	height: auto !important;   /* override inline height:Xpx set by PHP */
+	overflow: visible !important;
+	border-top: 1px solid #666666;
+	border-bottom: 1px solid #666666;
+	border-right: 1px solid #666666;
+	border-left: 3px solid #ffffff;
+}
+
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container .wdfy_upcoming_classes_arrow
+{
+	display: block;
+	float: right;
+	width: 16px;
+	height: 16px;
+	color: #eeeeee;
+	background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAyElEQVQ4T2NkoBAwUqifYdQAhtEwYEAKA31T0yCGv/+m/mdm6r10+nSPubk5389///b9/8/458/3ry5Xr179omdiUsX473/uf2amtEunT28GJUJ4QtI3MZnOwMCYwcjw/9CFM2fsDc3M9P/9+38BpIj5H7PWuXMnruubmh5n+M9gwcDIMOni6dP5KAbomJuLM/39m/z///91l8+evQEyXM/ELJbpP8OfC2dPLQMpNjQ31/r7928A89+/s8+fP/8axQBy88TA5wUAIfhNEfgb/c4AAAAASUVORK5CYII=") no-repeat;
+	margin-top: 13px;
+}
+
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container .wdfy_upcoming_classes_hours
+{
+	display: block; 
+	font-weight: 400;
+	font-size: 13px;
+}
+
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container .wdfy_upcoming_classes_programname
+{
+	display: block; 
+	font-weight: 700;
+}
+.wdfy_upcoming_classes:hover li .wdfy_upcoming_classes_container:hover a 
+{
+	color: #fff;
+	text-decoration: underline;
+}
+.wdfy_upcoming_classes:hover li .wdfy_upcoming_classes_container:hover a:hover
+{
+	color: #bbb;
+}
+
+.wdfy_upcoming_classes li .wdfy_upcoming_classes_container .wdfy_classes_hours_description
+{
+	display: block;
+	font-size: 13px;
+	margin-top: 10px;
+	font-weight: 400;
+}
+.wdfy_upcoming_classes_controls a
+{
+	display: block;
+	float: left;
+	padding: 6px;
+	outline: none;
+}
+
+.wdfy_upcoming_classes_controls a#upcoming_event_prev
+{
+	margin-right: 2px;
+}
+
+.wdfy_upcoming_classes_controls span
+{	
+	display: block;
+	width: 16px;
+	height: 16px;
+}
+.wdfy_upcoming_classes_controls .wdfy_upcoming_classes_prev_arrow
+{
+	width: 16px;
+	height: 16px;
+	color: #dddddd;
+	background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA2UlEQVQ4T82TSw6CQBBEq/E+QGTGE3gPEz8LTTyCoOAZjJ+tB3HjxhkWE69jbANhCCgYEzb2eupVVaeH0HGoox5/DnD78kIOP4zWw7aqrRV8MVgzOMqFjJVJ1bYJ0gioiI8A9wAagxE2QT4AXiA3IIRP0OGub/PM1RPiVEAik6qkmqQG8KSMs7gVMRePyZfyyIwJCGujVGwhJcCKAd4brRd58/pYyBSEyEJygI39RVwaukFwIHJmxU6SHOAHgxETS6PVssH5ffnkCbED0dUodf7zS/zlo3Wu8AI531sRz4KhkgAAAABJRU5ErkJggg==") no-repeat;
+}
+.wdfy_upcoming_classes_controls .wdfy_upcoming_classes_next_arrow
+{
+	width: 16px;
+	height: 16px;
+	color: #dddddd;
+	background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAA4UlEQVQ4T82TSwrCQBBEq5P7OEIynsFTqCAqHkH84AfUK4iJ4j1cunImYOJ1NC0GE9TEuMgmsxyoV1RXN6Hgo4J6lARQsWttBuRVn/sA+E8soyrlBiGdLt75EEUQUk7AmDGH28DzejkQQ9jSAdBi8CjQepnMIIYQwbko1c2ApMRP848hviBTIrhfEENYlgsymrFzHDPVgrDkGIQZwDtf687TJBEThoFSq/cZZdYoLDkCYY7wvmfTNInR4AxxKsI7+QVZRH+Mge+pdVY7uYskbPsIopuvVP1XtSXZxCIHVTjCA1kmWxGf+pdLAAAAAElFTkSuQmCC') no-repeat;
+	
+	
+}
+.wdfy_upcoming_classes_controls a:hover
+{
+	border-color: #888888;
+	background-color: #888888;
+	color: white;
+}
+
+.wdfy_page_margin_top
+{
+	margin-top: 30px;
+}
+
+.wdfy_clear:after{font-size:0px;content:".";display:block;height:0px;visibility:hidden;clear:both;}
+
+
+.wdfy_progress_container
+{
+	width: 30%;
+	height: 10px;
+	background-color: #bbb;
+	margin-top: 2px;
+	margin-bottom: 2px;
+	border-radius: 20px;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25) inset;
+}
+.wdfy_progress_bar_green
+{
+	width: 50%;
+	height: 10px;
+	background-color: #76B501;
+	border-radius: 20px;
+	 box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25) inset;
+}
+
+.wdfy_progress_bar_yellow
+{
+	width: 50%;
+	height: 10px;
+	background-color: #E88310;
+	border-radius: 20px;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25) inset;
+}
+
+.wdfy_progress_bar_red
+{
+	width: 50%;
+	height: 10px;
+	background-color: #BF1601;
+	border-radius: 20px;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25) inset;
+
+}
+
+.soswodify_component_wrapper p
+{
+		margin: 0 0 0 0;
+
+}
+
+.wdfy_cancelled
+{
+	/* durchgestrichen */
+	text-decoration: line-through;
+	/* grau */
+	color: #999;
+	/* nicht fett */
+	font-weight: normal;
 }
 
 /*
@@ -961,6 +1736,141 @@ img {
 	font-size: 0.9rem;
 }
 
+/* ------------------------ live Wodify calendar skin ------------------------ */
+/* Overrides for the WP WDFY plugin calendar so it matches the theme.
+   Scoped via .wp-site-blocks for specificity over the plugin stylesheet. */
+
+.wp-site-blocks .wdfy-week-calendar {
+	border: 1px solid var(--wp--preset--color--line);
+	border-radius: 18px;
+	overflow: hidden;
+	background: var(--wp--preset--color--paper);
+}
+
+.wp-site-blocks .wdfy-cal-nav {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 1rem 1.25rem;
+	background: var(--wp--preset--color--ink);
+}
+
+.wp-site-blocks .wdfy-cal-label {
+	font-family: var(--wp--preset--font-family--heading);
+	font-weight: 600;
+	font-size: 1rem;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: #fff;
+}
+
+.wp-site-blocks .wdfy-cal-btn {
+	background: rgba(255, 255, 255, 0.12);
+	border: none;
+	color: #fff;
+	width: 2.2rem;
+	height: 2.2rem;
+	border-radius: 50%;
+	font-size: 1.2rem;
+	line-height: 1;
+	cursor: pointer;
+	transition: background 0.2s ease;
+}
+
+.wp-site-blocks .wdfy-cal-btn:hover {
+	background: var(--wp--preset--color--accent);
+	color: var(--wp--preset--color--ink);
+}
+
+.wp-site-blocks .wdfy-cal-th-day,
+.wp-site-blocks .wdfy-cal-th-time {
+	background: var(--wp--preset--color--ink-soft);
+	color: #fff;
+	font-family: var(--wp--preset--font-family--heading);
+	font-weight: 500;
+	font-size: 0.85rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	border: none;
+	padding: 0.7rem 0.5rem;
+}
+
+.wp-site-blocks .wdfy-cal-th-day.wdfy-today {
+	background: var(--wp--preset--color--accent);
+	color: var(--wp--preset--color--ink);
+}
+
+.wp-site-blocks .wdfy-cal-table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.wp-site-blocks .wdfy-cal-td-cell,
+.wp-site-blocks .wdfy-cal-td-time {
+	border: 1px dashed var(--wp--preset--color--line);
+	vertical-align: top;
+	padding: 0.4rem;
+}
+
+.wp-site-blocks .wdfy-cal-td-time {
+	color: var(--wp--preset--color--slate);
+	font-size: 0.8rem;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.wp-site-blocks .wdfy-class-card {
+	background: var(--wp--preset--color--mist);
+	border-radius: 10px;
+	border-left: 4px solid var(--wdfy-prog-color, var(--wp--preset--color--accent));
+	padding: 0.55rem 0.7rem;
+	margin-bottom: 0.4rem;
+	font-size: 0.82rem;
+	line-height: 1.35;
+}
+
+.wp-site-blocks .wdfy-class-time {
+	display: block;
+	color: var(--wp--preset--color--slate);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.wp-site-blocks .wdfy-class-name {
+	display: block;
+	font-family: var(--wp--preset--font-family--heading);
+	font-weight: 600;
+	font-size: 0.9rem;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--wp--preset--color--ink);
+}
+
+.wp-site-blocks .wdfy-class-classname {
+	display: block;
+	color: var(--wp--preset--color--ink);
+	font-size: 0.8rem;
+}
+
+.wp-site-blocks .wdfy-class-coach {
+	display: block;
+	color: var(--wp--preset--color--slate);
+	font-size: 0.75rem;
+	margin-top: 0.15rem;
+}
+
+/* stacked mobile layout */
+.wp-site-blocks .wdfy-cal-day-header {
+	font-family: var(--wp--preset--font-family--heading);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	background: var(--wp--preset--color--ink-soft);
+	color: #fff;
+	padding: 0.6rem 1rem;
+}
+
 /* map embed */
 .cjja-map {
 	margin-top: 1.4rem;
@@ -1414,86 +2324,14 @@ img {
 	<div style="height:2rem" aria-hidden="true" class="wp-block-spacer"></div>
 	
 
-	
-	<div class="cjja-sched-legend" role="note" aria-label="Class type legend">
-		<span>Adult</span>
-		<span class="t-kids">Kids</span>
-		<span class="t-open">Open Mat</span>
-		<span class="t-judo">Judo</span>
-	</div>
-	
-
-	
-	<div style="height:1.5rem" aria-hidden="true" class="wp-block-spacer"></div>
-	
-
-	
+		
 	<div class="wp-block-group alignwide is-layout-flow wp-block-group-is-layout-flow">
 		
-		<div class="cjja-sched">
-			<div class="cjja-sched-day">
-				<h3>Monday</h3>
-				<ul>
-					<li><span class="cls">Adult No Gi</span><span class="time">6:30 – 7:30 AM</span></li>
-					<li class="t-kids"><span class="cls">Kids No Gi (5–12)</span><span class="time">5:45 – 6:45 PM</span></li>
-					<li><span class="cls">Adult Gi Fundamentals</span><span class="time">6:45 – 7:45 PM</span></li>
-					<li class="t-judo"><span class="cls">Judo</span><span class="time">7:45 – 8:45 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Tuesday</h3>
-				<ul>
-					<li><span class="cls">Adult No Gi</span><span class="time">12:00 – 1:00 PM</span></li>
-					<li class="t-kids"><span class="cls">Kids Gi (5–12)</span><span class="time">5:45 – 6:45 PM</span></li>
-					<li><span class="cls">Adult Gi</span><span class="time">6:45 – 7:45 PM</span></li>
-					<li class="t-open"><span class="cls">Open Mat</span><span class="time">7:45 – 8:45 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Wednesday</h3>
-				<ul>
-					<li><span class="cls">Adult No Gi</span><span class="time">6:30 – 7:30 AM</span></li>
-					<li class="t-kids"><span class="cls">Kids No Gi (5–12)</span><span class="time">5:45 – 6:45 PM</span></li>
-					<li><span class="cls">Adult No Gi</span><span class="time">6:45 – 7:45 PM</span></li>
-					<li class="t-judo"><span class="cls">Judo</span><span class="time">7:45 – 8:45 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Thursday</h3>
-				<ul>
-					<li><span class="cls">Adult No Gi</span><span class="time">12:00 – 1:00 PM</span></li>
-					<li class="t-kids"><span class="cls">Kids No Gi Wrestling (5–12)</span><span class="time">5:45 – 6:45 PM</span></li>
-					<li><span class="cls">Adult No Gi</span><span class="time">6:45 – 7:45 PM</span></li>
-					<li class="t-open"><span class="cls">Open Mat</span><span class="time">7:45 – 8:45 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Friday</h3>
-				<ul>
-					<li class="t-open"><span class="cls">Open Mat</span><span class="time">6:30 – 8:00 AM</span></li>
-					<li><span class="cls">Adult Gi</span><span class="time">12:00 – 1:00 PM</span></li>
-					<li><span class="cls">Live / Positional Class</span><span class="time">6:30 – 7:30 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Saturday</h3>
-				<ul>
-					<li class="t-kids"><span class="cls">Kids Jiu Jitsu</span><span class="time">10:00 – 11:00 AM</span></li>
-					<li class="t-judo"><span class="cls">Judo</span><span class="time">11:00 AM – 12:00 PM</span></li>
-					<li class="t-open"><span class="cls">Open Mat</span><span class="time">11:00 AM – 1:00 PM</span></li>
-				</ul>
-			</div>
-			<div class="cjja-sched-day">
-				<h3>Sunday</h3>
-				<ul>
-					<li class="t-open"><span class="cls">Open Mat</span><span class="time">11:00 AM – 1:00 PM</span></li>
-				</ul>
-			</div>
-		</div>
+		<div class="cjja-live-cal"><div class="wdfy-week-calendar" data-location="Cornelius Jiu Jitsu" data-program="" data-weekstart="1" data-timeformat="g:i A" data-dateformat="D, M j" data-showcapacity="true" data-showcancelled="true" data-tabs="false" data-showcoach="true" data-coachformat="full" data-showwod="published"><div class="wdfy-cal-nav"><button class="wdfy-cal-btn wdfy-cal-prev" data-offset="-1" aria-label="Previous week">&#8249;</button><span class="wdfy-cal-label">This week – 27.07. – 02.08.2026</span><button class="wdfy-cal-btn wdfy-cal-next" data-offset="1" aria-label="Next week">&#8250;</button></div><div class="wdfy-cal-body"><div class="wdfy-cal-desktop"><div class="wdfy-cal-scroll"><table class="wdfy-cal-table" role="grid"><thead><tr><th class="wdfy-cal-th-time" scope="col" aria-label="Time"></th><th class="wdfy-cal-th-day" scope="col">Mon, Jul 27</th><th class="wdfy-cal-th-day" scope="col">Tue, Jul 28</th><th class="wdfy-cal-th-day wdfy-today" scope="col">Wed, Jul 29</th><th class="wdfy-cal-th-day" scope="col">Thu, Jul 30</th><th class="wdfy-cal-th-day" scope="col">Fri, Jul 31</th><th class="wdfy-cal-th-day" scope="col">Sat, Aug 1</th><th class="wdfy-cal-th-day" scope="col">Sun, Aug 2</th></tr></thead><tbody><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">06:30</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">09:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">10:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">11:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">12:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">17:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:30</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">19:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr></tbody></table></div></div><div class="wdfy-cal-mobile"><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Mon, Jul 27</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Tue, Jul 28</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day wdfy-today"><div class="wdfy-cal-day-header">Wed, Jul 29</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Thu, Jul 30</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Fri, Jul 31</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sat, Aug 1</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sun, Aug 2</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div></div></div></div></div>
 		
 	</div>
 	
-
+	
 	
 	<div style="height:2rem" aria-hidden="true" class="wp-block-spacer"></div>
 	
@@ -2106,6 +2944,10 @@ img {
 </footer>
 </div>
 
+<div id="wdfy-wod-modal" class="wdfy-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="wdfy-modal-title"><div class="wdfy-modal-backdrop"></div><div class="wdfy-modal-dialog"><div class="wdfy-modal-header"><span id="wdfy-modal-title" class="wdfy-modal-title"></span><button class="wdfy-modal-close" type="button" aria-label="Close">&#x2715;</button></div><div class="wdfy-modal-body"></div></div></div>
+
+
+
 
 
 
@@ -2189,14 +3031,9 @@ img {
 <h2 class="wp-block-heading">Adult class times</h2>
 
 
-<ul class="wp-block-list">
-<li><strong>Mon:</strong> No Gi 6:30–7:30 AM · Gi Fundamentals 6:45–7:45 PM · Judo 7:45–8:45 PM</li>
-<li><strong>Tue:</strong> No Gi 12–1 PM · Gi 6:45–7:45 PM · Open Mat 7:45–8:45 PM</li>
-<li><strong>Wed:</strong> No Gi 6:30–7:30 AM · No Gi 6:45–7:45 PM · Judo 7:45–8:45 PM</li>
-<li><strong>Thu:</strong> No Gi 12–1 PM · No Gi 6:45–7:45 PM · Open Mat 7:45–8:45 PM</li>
-<li><strong>Fri:</strong> Open Mat 6:30–8 AM · Gi 12–1 PM · Live/Positional 6:30–7:30 PM</li>
-<li><strong>Sat:</strong> Judo 11 AM–12 PM · Open Mat 11 AM–1 PM &nbsp;·&nbsp; <strong>Sun:</strong> Open Mat 11 AM–1 PM</li>
-</ul>
+<p>Live from our scheduling system — reservation status and coaches included:</p>
+
+<div class="wdfy-week-calendar" data-location="Cornelius Jiu Jitsu" data-program="Jiu Jitsu" data-weekstart="1" data-timeformat="g:i A" data-dateformat="D, M j" data-showcapacity="true" data-showcancelled="true" data-tabs="false" data-showcoach="true" data-coachformat="full" data-showwod="published"><div class="wdfy-cal-nav"><button class="wdfy-cal-btn wdfy-cal-prev" data-offset="-1" aria-label="Previous week">&#8249;</button><span class="wdfy-cal-label">This week – 27.07. – 02.08.2026</span><button class="wdfy-cal-btn wdfy-cal-next" data-offset="1" aria-label="Next week">&#8250;</button></div><div class="wdfy-cal-body"><div class="wdfy-cal-desktop"><div class="wdfy-cal-scroll"><table class="wdfy-cal-table" role="grid"><thead><tr><th class="wdfy-cal-th-time" scope="col" aria-label="Time"></th><th class="wdfy-cal-th-day" scope="col">Mon, Jul 27</th><th class="wdfy-cal-th-day" scope="col">Tue, Jul 28</th><th class="wdfy-cal-th-day wdfy-today" scope="col">Wed, Jul 29</th><th class="wdfy-cal-th-day" scope="col">Thu, Jul 30</th><th class="wdfy-cal-th-day" scope="col">Fri, Jul 31</th><th class="wdfy-cal-th-day" scope="col">Sat, Aug 1</th><th class="wdfy-cal-th-day" scope="col">Sun, Aug 2</th></tr></thead><tbody><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">06:30</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">09:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">11:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">12:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:30</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">19:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr></tbody></table></div></div><div class="wdfy-cal-mobile"><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Mon, Jul 27</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Tue, Jul 28</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day wdfy-today"><div class="wdfy-cal-day-header">Wed, Jul 29</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Thu, Jul 30</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Fri, Jul 31</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sat, Aug 1</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sun, Aug 2</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div></div></div></div>
 
 
 
@@ -2254,13 +3091,9 @@ img {
 <h2 class="wp-block-heading">Kids class times</h2>
 
 
-<ul class="wp-block-list">
-<li><strong>Mon:</strong> Kids No Gi (5–12) 5:45–6:45 PM</li>
-<li><strong>Tue:</strong> Kids Gi (5–12) 5:45–6:45 PM</li>
-<li><strong>Wed:</strong> Kids No Gi (5–12) 5:45–6:45 PM</li>
-<li><strong>Thu:</strong> Kids No Gi Wrestling (5–12) 5:45–6:45 PM</li>
-<li><strong>Sat:</strong> Kids Jiu Jitsu 10–11 AM</li>
-</ul>
+<p>Live from our scheduling system:</p>
+
+<div class="wdfy-week-calendar" data-location="Cornelius Jiu Jitsu" data-program="Kids" data-weekstart="1" data-timeformat="g:i A" data-dateformat="D, M j" data-showcapacity="true" data-showcancelled="true" data-tabs="false" data-showcoach="true" data-coachformat="full" data-showwod="published"><div class="wdfy-cal-nav"><button class="wdfy-cal-btn wdfy-cal-prev" data-offset="-1" aria-label="Previous week">&#8249;</button><span class="wdfy-cal-label">This week – 27.07. – 02.08.2026</span><button class="wdfy-cal-btn wdfy-cal-next" data-offset="1" aria-label="Next week">&#8250;</button></div><div class="wdfy-cal-body"><div class="wdfy-cal-desktop"><div class="wdfy-cal-scroll"><table class="wdfy-cal-table" role="grid"><thead><tr><th class="wdfy-cal-th-time" scope="col" aria-label="Time"></th><th class="wdfy-cal-th-day" scope="col">Mon, Jul 27</th><th class="wdfy-cal-th-day" scope="col">Tue, Jul 28</th><th class="wdfy-cal-th-day wdfy-today" scope="col">Wed, Jul 29</th><th class="wdfy-cal-th-day" scope="col">Thu, Jul 30</th><th class="wdfy-cal-th-day" scope="col">Fri, Jul 31</th><th class="wdfy-cal-th-day" scope="col">Sat, Aug 1</th><th class="wdfy-cal-th-day" scope="col">Sun, Aug 2</th></tr></thead><tbody><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">10:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">17:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr></tbody></table></div></div><div class="wdfy-cal-mobile"><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Mon, Jul 27</div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Tue, Jul 28</div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></div><div class="wdfy-cal-day wdfy-today"><div class="wdfy-cal-day-header">Wed, Jul 29</div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Thu, Jul 30</div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Fri, Jul 31</div><p class="wdfy-cal-no-classes">No classes</p></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sat, Aug 1</div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sun, Aug 2</div><p class="wdfy-cal-no-classes">No classes</p></div></div></div></div>
 
 
 
@@ -2307,11 +3140,9 @@ img {
 <h2 class="wp-block-heading">Open Mat times</h2>
 
 
-<ul class="wp-block-list">
-<li><strong>Tue &amp; Thu:</strong> 7:45–8:45 PM</li>
-<li><strong>Fri:</strong> 6:30–8:00 AM</li>
-<li><strong>Sat &amp; Sun:</strong> 11 AM–1 PM</li>
-</ul>
+<p>Open Mat sessions appear in the live weekly calendar below alongside all our classes:</p>
+
+<div class="wdfy-week-calendar" data-location="Cornelius Jiu Jitsu" data-program="" data-weekstart="1" data-timeformat="g:i A" data-dateformat="D, M j" data-showcapacity="true" data-showcancelled="true" data-tabs="false" data-showcoach="true" data-coachformat="full" data-showwod="published"><div class="wdfy-cal-nav"><button class="wdfy-cal-btn wdfy-cal-prev" data-offset="-1" aria-label="Previous week">&#8249;</button><span class="wdfy-cal-label">This week – 27.07. – 02.08.2026</span><button class="wdfy-cal-btn wdfy-cal-next" data-offset="1" aria-label="Next week">&#8250;</button></div><div class="wdfy-cal-body"><div class="wdfy-cal-desktop"><div class="wdfy-cal-scroll"><table class="wdfy-cal-table" role="grid"><thead><tr><th class="wdfy-cal-th-time" scope="col" aria-label="Time"></th><th class="wdfy-cal-th-day" scope="col">Mon, Jul 27</th><th class="wdfy-cal-th-day" scope="col">Tue, Jul 28</th><th class="wdfy-cal-th-day wdfy-today" scope="col">Wed, Jul 29</th><th class="wdfy-cal-th-day" scope="col">Thu, Jul 30</th><th class="wdfy-cal-th-day" scope="col">Fri, Jul 31</th><th class="wdfy-cal-th-day" scope="col">Sat, Aug 1</th><th class="wdfy-cal-th-day" scope="col">Sun, Aug 2</th></tr></thead><tbody><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">06:30</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">09:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">10:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">11:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">12:00</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">17:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:30</td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell wdfy-today"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">18:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr><tr class="wdfy-cal-row"><td class="wdfy-cal-td-time">19:45</td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell wdfy-today"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td><td class="wdfy-cal-td-cell"></td></tr></tbody></table></div></div><div class="wdfy-cal-mobile"><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Mon, Jul 27</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Tue, Jul 28</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Dr. Jen Case">Dr. Jen Case</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day wdfy-today"><div class="wdfy-cal-day-header">Wed, Jul 29</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">No Gi Jiu Jitsu: 6:30 AM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Thu, Jul 30</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">5:45 PM–6:45 PM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 5:45 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 6:45 PM</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">7:45 PM–8:45 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Fri, Jul 31</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 AM–7:30 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Sunrise Open Mat </span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">12:00 PM–1:15 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Jiu Jitsu: 12:00 PM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">6:30 PM–7:30 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Comp/drilling Class</span><span class="wdfy-class-coach" title="Daniel Rotenberg">Daniel Rotenberg</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sat, Aug 1</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">9:00 AM–10:00 AM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Judo</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="kids" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">10:00 AM–11:00 AM</span><span class="wdfy-class-name">Kids</span><span class="wdfy-class-classname">Kids: 10:00 AM</span></div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div><div class="wdfy-cal-day"><div class="wdfy-cal-day-header">Sun, Aug 2</div><div class="wdfy-class-card wdfy-has-color" data-prog="jiu-jitsu" style="--wdfy-prog-color:#4A9EC2;--wdfy-text-color:#000000;border-left-color:#4A9EC2;"><span class="wdfy-class-time">11:00 AM–1:00 PM</span><span class="wdfy-class-name">Jiu Jitsu</span><span class="wdfy-class-classname">Open Mat</span><span class="wdfy-class-coach" title="Brian Solly">Brian Solly</span></div></div></div></div></div>
 
 
 
@@ -2514,13 +3345,19 @@ img {
   /* --- mobile nav overlay --- */
   document.addEventListener('click', function (e) {
     var nav = document.querySelector('.wp-block-navigation__responsive-container');
-    if (!nav) return;
-    if (e.target.closest('.wp-block-navigation__responsive-container-open')) {
-      nav.classList.add('is-menu-open', 'has-modal-open');
+    if (nav) {
+      if (e.target.closest('.wp-block-navigation__responsive-container-open')) {
+        nav.classList.add('is-menu-open', 'has-modal-open');
+      }
+      if (e.target.closest('.wp-block-navigation__responsive-container-close') ||
+          e.target.closest('.is-menu-open a[href*="#"]')) {
+        nav.classList.remove('is-menu-open', 'has-modal-open');
+      }
     }
-    if (e.target.closest('.wp-block-navigation__responsive-container-close') ||
-        e.target.closest('.is-menu-open a[href*="#"]')) {
-      nav.classList.remove('is-menu-open', 'has-modal-open');
+    var demo = e.target.closest('a[data-demo-link]');
+    if (demo) { e.preventDefault(); toast('That page is part of the full site — this demo shows the homepage.'); }
+    if (e.target.closest('.wdfy-cal-btn')) {
+      toast('Week navigation is live on the real site — this demo shows the current week.');
     }
   });
 
